@@ -1,0 +1,26 @@
+{
+  "jaipur": [
+    {"name": "Hawa Mahal", "category": "historic"},
+    {"name": "Amber Fort", "category": "historic"},
+    {"name": "City Palace, Jaipur", "category": "historic"},
+    {"name": "Jantar Mantar, Jaipur", "category": "museum"}
+  ],
+  "delhi": [
+    {"name": "Red Fort", "category": "historic"},
+    {"name": "Qutub Minar", "category": "historic"},
+    {"name": "Humayun's Tomb", "category": "historic"},
+    {"name": "India Gate", "category": "monument"}
+  ],
+  "new delhi": [
+    {"name": "Red Fort", "category": "historic"},
+    {"name": "Qutub Minar", "category": "historic"},
+    {"name": "Humayun's Tomb", "category": "historic"},
+    {"name": "India Gate", "category": "monument"}
+  ],
+  "rishikesh": [
+    {"name": "Triveni Ghat", "category": "attraction"},
+    {"name": "The Beatles Ashram", "category": "historic"},
+    {"name": "Ram Jhula", "category": "attraction"},
+    {"name": "Neer Garh Waterfall", "category": "viewpoint"}
+  ]
+}
