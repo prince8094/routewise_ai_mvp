@@ -3,17 +3,20 @@ from pathlib import Path
 from typing import List, Optional
 
 import httpx
-from fastapi import FastAPI, HTTPException, Query
+from fastapi import FastAPI, HTTPException, Query, Request
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 from maps_service import (
+    API_KEY,
     OSM_SOURCE,
     get_curated_attractions,
     get_destination_attractions,
     get_route,
     search_places,
+    suggest_destinations,
+    SuggestionRateLimitError,
 )
 
 BASE_DIR = Path(__file__).resolve().parent
@@ -23,6 +26,11 @@ app.mount("/static", StaticFiles(directory=BASE_DIR / "static"), name="static")
 class TripRequest(BaseModel):
     destination: str = Field(default="Rishikesh", min_length=1, max_length=200)
     origin: Optional[str] = Field(default=None, min_length=1, max_length=200)
+    destination_latitude: Optional[float] = Field(default=None, ge=-90, le=90)
+    destination_longitude: Optional[float] = Field(default=None, ge=-180, le=180)
+    destination_context: Optional[str] = Field(default=None, max_length=250)
+    origin_latitude: Optional[float] = Field(default=None, ge=-90, le=90)
+    origin_longitude: Optional[float] = Field(default=None, ge=-180, le=180)
     days: int = Field(default=3, ge=1, le=10)
     travelers: int = Field(default=2, ge=1, le=20)
     budget_per_person: int = Field(default=5000, ge=1)
@@ -33,6 +41,14 @@ class TripRequest(BaseModel):
     )
     rafting_closed: bool = False
     expensive_rafting: bool = False
+
+    @model_validator(mode="after")
+    def validate_location_coordinate_pairs(self):
+        if (self.destination_latitude is None) != (self.destination_longitude is None):
+            raise ValueError("Destination latitude and longitude must be provided together.")
+        if (self.origin_latitude is None) != (self.origin_longitude is None):
+            raise ValueError("Origin latitude and longitude must be provided together.")
+        return self
 
     @field_validator("destination")
     @classmethod
@@ -209,6 +225,8 @@ async def _fetch_intercity_route(
 ) -> Optional[dict]:
     if not req.origin:
         return None
+    if not API_KEY:
+        return None
 
     origin_query = req.origin.strip()
     destination_query = req.destination.strip()
@@ -220,23 +238,46 @@ async def _fetch_intercity_route(
 
     try:
         origin_matches, destination_matches = await asyncio.gather(
-            search_places(origin_query, 1),
-            search_places(destination_query, 1),
+            search_places(origin_query, 1)
+            if req.origin_latitude is None or req.origin_longitude is None
+            else asyncio.sleep(0, result=[]),
+            search_places(destination_query, 1)
+            if req.destination_latitude is None or req.destination_longitude is None
+            else asyncio.sleep(0, result=[]),
         )
-        if not origin_matches:
+        origin_place = origin_matches[0] if origin_matches else {}
+        destination_place = destination_matches[0] if destination_matches else {}
+        origin_latitude = (
+            req.origin_latitude
+            if req.origin_latitude is not None
+            else origin_place.get("latitude")
+        )
+        origin_longitude = (
+            req.origin_longitude
+            if req.origin_longitude is not None
+            else origin_place.get("longitude")
+        )
+        destination_latitude = (
+            req.destination_latitude
+            if req.destination_latitude is not None
+            else destination_place.get("latitude")
+        )
+        destination_longitude = (
+            req.destination_longitude
+            if req.destination_longitude is not None
+            else destination_place.get("longitude")
+        )
+        if origin_latitude is None or origin_longitude is None:
             raise ValueError(f"Google Places could not find the origin: {origin_query}.")
-        if not destination_matches:
+        if destination_latitude is None or destination_longitude is None:
             raise ValueError(
                 f"Google Places could not find the destination: {destination_query}."
             )
-
-        origin_place = origin_matches[0]
-        destination_place = destination_matches[0]
         coordinates = (
-            origin_place.get("latitude"),
-            origin_place.get("longitude"),
-            destination_place.get("latitude"),
-            destination_place.get("longitude"),
+            origin_latitude,
+            origin_longitude,
+            destination_latitude,
+            destination_longitude,
         )
         if any(value is None for value in coordinates):
             raise ValueError("Google Places did not return coordinates for the route.")
@@ -277,8 +318,14 @@ async def _fetch_intercity_route(
     return {
         "source": "Google Places + Google Routes",
         "travel_mode": "DRIVE",
-        "origin": origin_place.get("address") or origin_place.get("name"),
-        "destination": destination_place.get("address") or destination_place.get("name"),
+        "origin": (
+            origin_place.get("address") or origin_place.get("name") or req.origin
+        ),
+        "destination": (
+            destination_place.get("address")
+            or destination_place.get("name")
+            or req.destination
+        ),
         "distance_meters": distance_meters,
         "duration_seconds": duration_seconds,
         "rate_per_km": req.transport_rate_per_km,
@@ -290,7 +337,16 @@ def _fallback_attractions(destination: str) -> tuple[list[dict], str]:
     places = get_curated_attractions(destination, limit=10)
     if places:
         return places, "Curated fallback (not live data)"
-    return [], "No curated fallback is available for this destination"
+    return [], "No live or curated attractions found"
+
+
+def _attraction_source(attractions: list[dict]) -> str:
+    sources = list(dict.fromkeys(
+        item.get("source")
+        for item in attractions
+        if isinstance(item.get("source"), str) and item["source"]
+    ))
+    return " + ".join(sources) if sources else "No live or curated attraction results"
 
 
 async def _load_plan_attractions(req: TripRequest) -> tuple[list[dict], str]:
@@ -298,7 +354,10 @@ async def _load_plan_attractions(req: TripRequest) -> tuple[list[dict], str]:
         attractions = await get_destination_attractions(
             req.destination,
             req.interests,
-            limit=min(10, req.days * 2),
+            limit=min(30, req.days * 2),
+            latitude=req.destination_latitude,
+            longitude=req.destination_longitude,
+            context=req.destination_context,
         )
     except RuntimeError:
         attractions = []
@@ -307,11 +366,7 @@ async def _load_plan_attractions(req: TripRequest) -> tuple[list[dict], str]:
         attractions = []
         source = "OpenStreetMap lookup unavailable"
     else:
-        source = (
-            attractions[0].get("source", OSM_SOURCE)
-            if attractions
-            else "No live OSM results"
-        )
+        source = _attraction_source(attractions) if attractions else "No live OSM results"
 
     usable = []
     seen_ids = set()
@@ -334,13 +389,10 @@ async def _load_plan_attractions(req: TripRequest) -> tuple[list[dict], str]:
 
     if not usable:
         fallback, fallback_source = _fallback_attractions(req.destination)
-        if fallback:
-            source = fallback_source
-        else:
-            source = fallback_source
+        source = fallback_source
         usable = fallback
 
-    return usable[: min(10, req.days * 2)], source
+    return usable[: min(30, req.days * 2)], source
 
 
 def _make_itinerary(
@@ -373,12 +425,15 @@ def _make_itinerary(
             no_results_name = (
                 "No additional attractions scheduled"
                 if attractions
-                else "No verified attractions available"
+                else f"No attractions found for {req.destination}"
             )
             no_results_description = (
                 "No more unique attractions were returned for this trip."
                 if attractions
-                else f"No attraction results are available for {req.destination}."
+                else (
+                    f"No attraction results are available for {req.destination}. "
+                    "Try another supported Indian city or check the spelling."
+                )
             )
             items.append({
                 "id": None,
@@ -388,7 +443,7 @@ def _make_itinerary(
                 "latitude": None,
                 "longitude": None,
                 "maps_url": None,
-                "source": "No live or destination-specific demo results",
+                "source": "No live or curated attraction results",
                 "description": no_results_description,
                 "time": "Flexible",
                 "duration_minutes": None,
@@ -428,8 +483,8 @@ def build_plan(
         )
     else:
         warnings.append(
-            "Home-to-destination travel is excluded. Enter an origin to include a "
-            "Google Maps round-trip route estimate."
+            "Home-to-destination travel is excluded. Optional Google Places and "
+            "Routes configuration is required for a route estimate."
         )
     if req.rafting_closed:
         warnings.append(
@@ -563,17 +618,44 @@ async def api_places(
         ) from exc
 
 
+@app.get("/api/destinations/suggest")
+async def api_destination_suggestions(
+    request: Request,
+    q: str = Query(min_length=3, max_length=100),
+    limit: int = Query(default=6, ge=1, le=8),
+):
+    client_key = request.client.host if request.client else "unknown"
+    try:
+        suggestions = await suggest_destinations(q, client_key, limit)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except SuggestionRateLimitError as exc:
+        raise HTTPException(status_code=429, detail=str(exc)) from exc
+    except httpx.HTTPError as exc:
+        raise HTTPException(
+            status_code=502,
+            detail="Destination search is temporarily unavailable. Try again shortly.",
+        ) from exc
+    return {"query": q.strip(), "count": len(suggestions), "suggestions": suggestions}
+
+
 @app.get("/api/attractions")
 async def api_attractions(
     destination: str = Query(min_length=1, max_length=200),
     interests: List[str] = Query(default=[]),
-    limit: int = Query(default=8, ge=1, le=10),
+    limit: int = Query(default=15, ge=1, le=30),
+    latitude: Optional[float] = Query(default=None, ge=-90, le=90),
+    longitude: Optional[float] = Query(default=None, ge=-180, le=180),
+    context: Optional[str] = Query(default=None, max_length=250),
 ):
     try:
         attractions = await get_destination_attractions(
             destination,
             interests,
             limit,
+            latitude,
+            longitude,
+            context,
         )
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
@@ -588,14 +670,18 @@ async def api_attractions(
             detail="OpenStreetMap attraction lookup failed.",
         ) from exc
 
-    return {
+    response = {
         "destination": destination.strip(),
         "count": len(attractions),
-        "source": attractions[0].get("source", "No attraction results")
-        if attractions
-        else "No live or curated attraction results",
+        "source": _attraction_source(attractions),
         "attractions": attractions,
     }
+    if not attractions:
+        response["message"] = (
+            f"No live or curated attractions found for {destination.strip()}. "
+            "Try another supported Indian city or check the spelling."
+        )
+    return response
 
 
 @app.get("/api/route")

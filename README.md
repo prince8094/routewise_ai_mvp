@@ -23,7 +23,9 @@ Try attraction discovery:
 Invoke-RestMethod "http://127.0.0.1:8000/api/attractions?destination=Jaipur&limit=8"
 ```
 
-The endpoint accepts `destination`, repeated `interests` parameters, and a `limit` from 1 to 10 (default 8). It returns the destination, count, source, and normalized attraction records with name, optional address, coordinates, category, source, and a map search link.
+The endpoint accepts `destination`, repeated `interests` parameters, and a `limit` from 1 to 30 (default 15). It returns the destination, count, source, and normalized attraction records with name, optional address, coordinates, category, source, and a map search link.
+
+Destination and starting-city fields use the backend endpoint `/api/destinations/suggest?q=bang`. It uses Photon’s documented `https://photon.komoot.io/api/` search endpoint, shows the place context, and returns selected coordinates to the trip planner. Requests are debounced in the browser (350 ms), limited in result count and frequency on the server, and cached for 15 minutes. Photon describes its hosted demo as suitable for reasonable use but warns that extensive requests may be throttled or banned; for higher traffic, run a private Photon instance or choose a supported provider. Source and API terms: <https://github.com/komoot/photon> and <https://photon.komoot.io/>.
 
 Run the mocked API, attraction, and budget tests:
 
@@ -39,7 +41,7 @@ Attraction search does not require a Google API key. Jaipur, Delhi, and Rishikes
 ROUTEWISE_DESTINATION_COORDINATES={"pune":[18.5204,73.8567]}
 ```
 
-Unknown destinations are geocoded through Nominatim only when `NOMINATIM_USER_AGENT` is configured with the application name and a real contact URL or email, for example `RouteWiseAI/0.1 (https://your-project.example/contact)`. Nominatim calls are cached and throttled to at most one per second. If valid identification is not configured or geocoding fails, the app uses destination-specific curated records where available; it does not send a request on each keystroke.
+Delhi/New Delhi, Bangalore/Bengaluru, and other configured names resolve to shared city centers when a suggestion is not selected. A selected Photon suggestion sends its actual latitude/longitude and region context to the attraction search, avoiding reliance on a city-center guess. Unknown free-text destinations are geocoded through Nominatim only when `NOMINATIM_USER_AGENT` is configured with the application name and a real contact URL or email, for example `RouteWiseAI/0.1 (https://your-project.example/contact)`. Nominatim calls are cached and throttled to at most one per second. If valid identification is not configured or geocoding fails, the app uses destination-specific curated records where available; it does not send a request on each keystroke.
 
 Google integration remains optional:
 
@@ -67,14 +69,14 @@ Use a real contact URL or email in the Nominatim user agent. Set `GOOGLE_MAPS_AP
 ## Data sources and limitations
 
 - Attraction search queries the public Overpass API with a 12 km radius and a bounded query timeout; results are cached in-process to reduce public-server traffic. OSM records can be incomplete or outdated.
-- The small JSON fallback for Jaipur, Delhi, and Rishikesh is curated reference data, clearly labeled **“Curated fallback (not live data)”**. It is used when Overpass has no results or is unavailable; it is not presented as live data. Fallback coordinates/addresses are omitted rather than guessed.
+- The JSON dataset contains 10 city-specific curated reference attractions for each of Delhi, Jaipur, Mumbai, Agra, Udaipur, Jodhpur, Varanasi, Rishikesh, Haridwar, Amritsar, Shimla, Manali, Bengaluru, Hyderabad, Chennai, Kolkata, Pune, and Goa. When the live list is shorter than requested, unique curated records may supplement it; each record is labeled by its source, and curated records are clearly marked **“Curated fallback (not live data)”**. Curated points are approximate and are never presented as live results.
 - Display OSM data with the required attribution: **© OpenStreetMap contributors**. OSM provides map data, not routing, travel times, prices, opening hours, ratings, or live availability.
 - Trip prices and activity allowances are illustrative estimates. The daily itinerary is not schedule-validated.
 - Optional Google Routes estimates require Google Maps place lookup and route computation. Without Google configuration (or if those APIs fail), route functionality is unavailable and intercity travel is excluded from the plan.
 
 ## Demo flow
 
-1. Generate an itinerary for Rishikesh, Jaipur, or Delhi.
-2. Change destination and move focus away to refresh the plan; attraction discovery is not triggered on each keystroke.
+1. Type at least three characters into the destination or starting-city field, then choose a contextual autocomplete result with the keyboard or mouse.
+2. Destination attraction discovery uses the chosen coordinates; fallback records are used only when live data is unavailable or insufficient.
 3. Try the simulated activity constraints and review the labeled data sources and estimated costs.
 4. To include optional Google round-trip route estimates, configure the Google key, APIs, and a starting city.

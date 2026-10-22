@@ -133,6 +133,74 @@
       min-width: 0
     }
 
+    .attraction-list {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+      gap: 10px
+    }
+
+    .attraction-item {
+      display: grid;
+      gap: 5px;
+      padding: 12px;
+      border: 1px solid #e0e7ee;
+      border-radius: 10px
+    }
+
+    .autocomplete {
+      position: relative
+    }
+
+    .suggestions {
+      position: absolute;
+      z-index: 5;
+      top: calc(100% + 4px);
+      left: 0;
+      right: 0;
+      max-height: 260px;
+      overflow-y: auto;
+      background: #fff;
+      border: 1px solid #ccd6df;
+      border-radius: 9px;
+      box-shadow: 0 8px 24px #19384a1c
+    }
+
+    .suggestion {
+      display: grid;
+      gap: 3px;
+      width: 100%;
+      padding: 10px 12px;
+      border: 0;
+      border-radius: 0;
+      background: #fff;
+      color: #18212f;
+      text-align: left;
+      cursor: pointer
+    }
+
+    .suggestion:hover,
+    .suggestion[aria-selected="true"] {
+      background: #eaf8f5
+    }
+
+    .suggestion-context {
+      color: #6a7887;
+      font-size: 12px;
+      font-weight: 400
+    }
+
+    .sr-only {
+      position: absolute;
+      width: 1px;
+      height: 1px;
+      padding: 0;
+      margin: -1px;
+      overflow: hidden;
+      clip: rect(0, 0, 0, 0);
+      white-space: nowrap;
+      border: 0
+    }
+
     .hero-card {
       padding: 20px;
       background: linear-gradient(120deg, #fff, #eaf8f5)
@@ -364,8 +432,20 @@
   <main>
     <aside class="panel">
       <h2>Trip requirements</h2>
-      <label for="destination">Destination</label><input id="destination" value="Rishikesh">
-      <label for="origin">Starting city (optional)</label><input id="origin" placeholder="e.g. New Delhi">
+      <label for="destination">Destination</label>
+      <div class="autocomplete">
+        <input id="destination" value="Rishikesh" role="combobox" aria-autocomplete="list"
+          aria-expanded="false" aria-controls="destinationSuggestions" autocomplete="off">
+        <div id="destinationSuggestions" class="suggestions" role="listbox" hidden></div>
+        <span id="destinationSearchStatus" class="sr-only" role="status" aria-live="polite"></span>
+      </div>
+      <label for="origin">Starting city (optional)</label>
+      <div class="autocomplete">
+        <input id="origin" placeholder="e.g. New Delhi" role="combobox" aria-autocomplete="list"
+          aria-expanded="false" aria-controls="originSuggestions" autocomplete="off">
+        <div id="originSuggestions" class="suggestions" role="listbox" hidden></div>
+        <span id="originSearchStatus" class="sr-only" role="status" aria-live="polite"></span>
+      </div>
       <label for="transportRate">Estimated vehicle rate (₹/km)</label>
       <input id="transportRate" type="number" min="0.01" max="1000" step="0.5" value="15">
       <label for="days">Trip duration</label><select id="days">
@@ -397,6 +477,13 @@
           <div class="stat"><span>Budget remaining</span><strong id="remaining">₹—</strong></div>
           <div class="stat"><span>Budget per person</span><strong id="perPerson">₹—</strong></div>
         </div>
+      </div>
+      <div class="card">
+        <h2 class="section-title">Destination attractions</h2>
+        <p class="muted" id="attractionSource">Loading attraction data…</p>
+        <p class="muted">Nearby mapped attractions; results may be incomplete.</p>
+        <div id="attractionList" class="attraction-list"></div>
+        <p class="muted">Map links open OpenStreetMap. © OpenStreetMap contributors.</p>
       </div>
       <div class="card">
         <div class="card-head">
@@ -445,11 +532,18 @@
     let activeRequest = null;
     let updateTimer = null;
     let requestNumber = 0;
+    const selectedLocations = { destination: null, origin: null };
 
     function requestBody() {
       return {
-        destination: $("destination").value || "Rishikesh",
-        origin: $("origin").value.trim() || null,
+        destination: selectedLocations.destination?.name
+          || $("destination").value || "Rishikesh",
+        destination_latitude: selectedLocations.destination?.latitude ?? null,
+        destination_longitude: selectedLocations.destination?.longitude ?? null,
+        destination_context: selectedLocations.destination?.context?.join(", ") || null,
+        origin: selectedLocations.origin?.name || $("origin").value.trim() || null,
+        origin_latitude: selectedLocations.origin?.latitude ?? null,
+        origin_longitude: selectedLocations.origin?.longitude ?? null,
         transport_rate_per_km: Number($("transportRate").value || 15),
         days: Number($("days").value),
         travelers: Math.max(1, Number($("travelers").value || 2)),
@@ -472,6 +566,12 @@
       $("expenseRows").replaceChildren();
       $("routeSummary").textContent = "";
       $("itinerary").replaceChildren();
+      $("attractionSource").textContent = "Searching OpenStreetMap and curated data…";
+      $("attractionList").replaceChildren();
+      const loading = document.createElement("p");
+      loading.className = "muted";
+      loading.textContent = "Finding destination-specific places…";
+      $("attractionList").append(loading);
       $("checks").replaceChildren();
       $("warnings").replaceChildren();
     }
@@ -498,14 +598,24 @@
         }
         if (requestId !== requestNumber) return;
         render(data);
-        $("message").textContent = endpoint.endsWith("replan") ? "Replanning complete. Review the updated constraints and estimates." : "Draft itinerary generated.";
+        $("message").textContent = !data.attractions.length
+          ? `No attractions found for ${data.destination}. Try another supported Indian city or check the spelling.`
+          : endpoint.endsWith("replan")
+            ? "Replanning complete. Review the updated constraints and estimates."
+            : "Draft itinerary generated.";
       } catch (err) {
         if (err.name === "AbortError" || requestId !== requestNumber) return;
-        $("message").textContent = err instanceof TypeError
+        const message = err instanceof TypeError
           ? "Could not connect to the API. Start the FastAPI server using the README instructions."
           : (err.message || "Could not generate the itinerary.");
+        $("message").textContent = message;
         $("tripTitle").textContent = "Itinerary unavailable";
         $("dataMode").textContent = "PLAN FAILED";
+        $("attractionSource").textContent = "Attraction lookup unavailable";
+        const failed = document.createElement("p");
+        failed.className = "muted";
+        failed.textContent = "Could not load destination attractions. Check the server connection and try again.";
+        $("attractionList").replaceChildren(failed);
       } finally {
         if (requestId === requestNumber) {
           activeRequest = null;
@@ -518,11 +628,21 @@
     function render(data) {
       $("tripTitle").textContent = "Your " + data.destination + " adventure";
       $("dataMode").textContent = data.attraction_source || data.data_mode;
+      $("attractionSource").textContent = data.attraction_source || "Attraction source unavailable";
+      const attractionList = Array.isArray(data.attractions) ? data.attractions : [];
+      if (attractionList.length) {
+        $("attractionList").replaceChildren(...attractionList.map(makeAttraction));
+      } else {
+        const empty = document.createElement("p");
+        empty.className = "muted";
+        empty.textContent = `No live or curated attractions found for ${data.destination}. Try another supported Indian city or check the spelling.`;
+        $("attractionList").replaceChildren(empty);
+      }
       $("subtitle").textContent = `${data.days} days · ${data.travelers} travelers`;
       const route = data.travel_route;
       $("routeSummary").textContent = route
         ? `Round trip: ${esc(route.origin)} ↔ ${esc(route.destination)} · ${(route.distance_meters / 1000).toFixed(1)} km · ${Math.round(route.duration_seconds / 60)} min · estimated fare ${money(route.estimated_cost)} at ${money(route.rate_per_km)}/km.`
-        : "Home-to-destination travel is excluded until a starting city is entered.";
+        : "Intercity travel is excluded. Optional Google Places and Routes configuration is required for route estimates.";
       $("total").textContent = money(data.total_cost);
       $("remaining").textContent = money(data.remaining);
       $("perPerson").textContent = money(Math.round(data.total_cost / data.travelers));
@@ -589,6 +709,12 @@
       const name = document.createElement("strong");
       name.textContent = activity.name;
       details.append(name);
+      if (activity.category) {
+        const category = document.createElement("p");
+        category.className = "muted";
+        category.textContent = `Category: ${activity.category}`;
+        details.append(category);
+      }
       if (activity.address) {
         const address = document.createElement("p");
         address.textContent = activity.address;
@@ -625,6 +751,30 @@
       return wrapper;
     }
 
+    function makeAttraction(attraction) {
+      const item = document.createElement("div");
+      item.className = "attraction-item";
+      const name = document.createElement("strong");
+      name.textContent = attraction.name;
+      const category = document.createElement("span");
+      category.className = "muted";
+      category.textContent = attraction.category || "Attraction";
+      const source = document.createElement("span");
+      source.className = "muted";
+      source.textContent = attraction.source || "Source unavailable";
+      item.append(name, category, source);
+      const mapUrl = getSafeMapsUrl(attraction.maps_url);
+      if (mapUrl) {
+        const link = document.createElement("a");
+        link.href = mapUrl;
+        link.target = "_blank";
+        link.rel = "noopener noreferrer";
+        link.textContent = "View map";
+        item.append(link);
+      }
+      return item;
+    }
+
     function getSafeMapsUrl(value) {
       if (typeof value !== "string") return null;
       try {
@@ -637,6 +787,152 @@
       } catch {
         return null;
       }
+    }
+
+    function setupAutocomplete(field) {
+      const input = $(field);
+      const list = $(`${field}Suggestions`);
+      const status = $(`${field}SearchStatus`);
+      let suggestions = [];
+      let activeIndex = -1;
+      let timer = null;
+      let controller = null;
+      let requestId = 0;
+
+      function close() {
+        list.hidden = true;
+        list.replaceChildren();
+        input.setAttribute("aria-expanded", "false");
+        input.removeAttribute("aria-activedescendant");
+        activeIndex = -1;
+      }
+
+      function setActive(index) {
+        activeIndex = index;
+        [...list.children].forEach((item, itemIndex) => {
+          const selected = itemIndex === activeIndex;
+          item.setAttribute("aria-selected", String(selected));
+          if (selected) {
+            input.setAttribute("aria-activedescendant", item.id);
+            item.scrollIntoView({ block: "nearest" });
+          }
+        });
+      }
+
+      function selectSuggestion(suggestion) {
+        selectedLocations[field] = suggestion;
+        input.value = suggestion.display_name;
+        status.textContent = `${suggestion.display_name} selected.`;
+        if (controller) controller.abort();
+        window.clearTimeout(timer);
+        close();
+        queuePlanUpdate();
+      }
+
+      function showMessage(message) {
+        const item = document.createElement("div");
+        item.className = "suggestion";
+        item.setAttribute("role", "option");
+        item.setAttribute("aria-disabled", "true");
+        item.textContent = message;
+        list.replaceChildren(item);
+        list.hidden = false;
+        input.setAttribute("aria-expanded", "true");
+      }
+
+      async function search(query, thisRequest) {
+        if (controller) controller.abort();
+        controller = new AbortController();
+        suggestions = [];
+        activeIndex = -1;
+        status.textContent = "Searching places…";
+        showMessage("Searching places…");
+        try {
+          const response = await fetch(
+            `/api/destinations/suggest?q=${encodeURIComponent(query)}&limit=6`,
+            { signal: controller.signal }
+          );
+          const data = await response.json();
+          if (thisRequest !== requestId) return;
+          if (!response.ok) {
+            throw new Error(typeof data.detail === "string" ? data.detail : "Place search failed.");
+          }
+          suggestions = Array.isArray(data.suggestions) ? data.suggestions : [];
+          if (!suggestions.length) {
+            status.textContent = "No places found.";
+            showMessage("No matching places found.");
+            return;
+          }
+          list.replaceChildren(...suggestions.map((suggestion, index) => {
+            const option = document.createElement("button");
+            option.type = "button";
+            option.className = "suggestion";
+            option.id = `${field}Suggestion${index}`;
+            option.setAttribute("role", "option");
+            option.setAttribute("aria-selected", "false");
+            const name = document.createElement("strong");
+            name.textContent = suggestion.name;
+            const context = document.createElement("span");
+            context.className = "suggestion-context";
+            context.textContent = (suggestion.context || []).join(", ");
+            option.append(name, context);
+            option.addEventListener("mousedown", event => event.preventDefault());
+            option.addEventListener("click", () => selectSuggestion(suggestion));
+            return option;
+          }));
+          list.hidden = false;
+          input.setAttribute("aria-expanded", "true");
+          status.textContent = `${suggestions.length} suggestions available.`;
+          activeIndex = -1;
+        } catch (error) {
+          if (error.name === "AbortError" || thisRequest !== requestId) return;
+          status.textContent = error.message || "Place search is unavailable.";
+          showMessage(status.textContent);
+        }
+      }
+
+      input.addEventListener("input", () => {
+        selectedLocations[field] = null;
+        window.clearTimeout(timer);
+        if (controller) controller.abort();
+        requestId++;
+        const query = input.value.trim();
+        if (query.length < 3) {
+          close();
+          status.textContent = query ? "Enter at least 3 characters." : "";
+          return;
+        }
+        status.textContent = "Waiting to search…";
+        timer = window.setTimeout(() => search(query, requestId), 350);
+      });
+
+      input.addEventListener("keydown", event => {
+        if (event.key === "Escape") {
+          close();
+          return;
+        }
+        if (list.hidden || !suggestions.length) {
+          if (event.key === "Enter" && input.value.trim().length >= 3) {
+            event.preventDefault();
+            search(input.value.trim(), ++requestId);
+          }
+          return;
+        }
+        if (event.key === "ArrowDown") {
+          event.preventDefault();
+          setActive((activeIndex + 1) % suggestions.length);
+        } else if (event.key === "ArrowUp") {
+          event.preventDefault();
+          setActive((activeIndex - 1 + suggestions.length) % suggestions.length);
+        } else if (event.key === "Enter" && activeIndex >= 0) {
+          event.preventDefault();
+          selectSuggestion(suggestions[activeIndex]);
+        }
+      });
+
+      document.addEventListener("click", event => {
+        if (!input.parentElement.contains(event.target)) close();
+      });
     }
 
     $("generate").addEventListener("click", () => runPlan("/api/plan"));
@@ -663,6 +959,8 @@
     ["days", "interests", "expensive", "closed"].forEach(id => {
       $(id).addEventListener("change", queuePlanUpdate);
     });
+    setupAutocomplete("destination");
+    setupAutocomplete("origin");
     runPlan("/api/plan");
   </script>
 </body>
