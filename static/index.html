@@ -1,0 +1,657 @@
+<!doctype html>
+<html lang="en">
+
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>RouteWise AI — Adventure Planner</title>
+  <style>
+    :root {
+      font-family: Inter, ui-sans-serif, system-ui, -apple-system, Segoe UI, sans-serif;
+      color: #18212f;
+      background: #f4f7fb
+    }
+
+    * {
+      box-sizing: border-box
+    }
+
+    body {
+      margin: 0
+    }
+
+    header {
+      background: #102c3a;
+      color: #fff;
+      padding: 26px max(20px, calc((100vw - 1100px)/2))
+    }
+
+    header .eyebrow {
+      color: #9ddbd1;
+      font-size: 12px;
+      font-weight: 800;
+      letter-spacing: .12em;
+      text-transform: uppercase
+    }
+
+    h1 {
+      margin: 8px 0 6px;
+      font-size: clamp(27px, 4vw, 42px)
+    }
+
+    header p {
+      margin: 0;
+      color: #d4e5e9;
+      max-width: 700px;
+      line-height: 1.5
+    }
+
+    main {
+      max-width: 1100px;
+      margin: 22px auto;
+      padding: 0 18px 40px;
+      display: grid;
+      grid-template-columns: 310px 1fr;
+      gap: 18px
+    }
+
+    .panel,
+    .card {
+      background: white;
+      border: 1px solid #e0e7ee;
+      border-radius: 16px;
+      box-shadow: 0 5px 20px #19384a0a
+    }
+
+    .panel {
+      padding: 18px;
+      height: max-content
+    }
+
+    .panel h2,
+    .section-title {
+      font-size: 17px;
+      margin: 0 0 15px
+    }
+
+    label {
+      display: block;
+      font-size: 12px;
+      color: #566575;
+      font-weight: 750;
+      margin: 13px 0 6px
+    }
+
+    input,
+    select {
+      width: 100%;
+      padding: 11px;
+      border: 1px solid #ccd6df;
+      border-radius: 9px;
+      background: white;
+      font: inherit;
+      color: #18212f
+    }
+
+    .check {
+      display: flex;
+      align-items: center;
+      gap: 9px;
+      margin-top: 14px;
+      font-size: 13px;
+      color: #344454
+    }
+
+    .check input {
+      width: auto
+    }
+
+    button {
+      border: 0;
+      border-radius: 10px;
+      padding: 12px 14px;
+      font-weight: 800;
+      cursor: pointer;
+      font: inherit
+    }
+
+    .primary {
+      background: #0b766e;
+      color: #fff;
+      width: 100%;
+      margin-top: 18px
+    }
+
+    .secondary {
+      background: #e8f3f1;
+      color: #075e58
+    }
+
+    .content {
+      display: grid;
+      gap: 15px;
+      min-width: 0
+    }
+
+    .hero-card {
+      padding: 20px;
+      background: linear-gradient(120deg, #fff, #eaf8f5)
+    }
+
+    .pill {
+      display: inline-block;
+      border-radius: 30px;
+      padding: 5px 9px;
+      background: #e0f4ed;
+      color: #09645c;
+      font-size: 11px;
+      font-weight: 850
+    }
+
+    .hero-card h2 {
+      font-size: 24px;
+      margin: 10px 0 4px
+    }
+
+    .muted {
+      color: #6a7887;
+      font-size: 13px;
+      line-height: 1.5
+    }
+
+    .stats {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 10px;
+      margin-top: 18px
+    }
+
+    .stat {
+      background: #ffffffb8;
+      border: 1px solid #e0eae8;
+      border-radius: 12px;
+      padding: 12px
+    }
+
+    .stat span {
+      display: block;
+      color: #667687;
+      font-size: 11px
+    }
+
+    .stat strong {
+      display: block;
+      font-size: 21px;
+      margin-top: 4px
+    }
+
+    .card {
+      padding: 18px
+    }
+
+    .card-head {
+      display: flex;
+      justify-content: space-between;
+      gap: 10px;
+      align-items: center
+    }
+
+    .status {
+      font-size: 11px;
+      font-weight: 800;
+      border-radius: 30px;
+      padding: 6px 9px;
+      background: #e4f7eb;
+      color: #166534
+    }
+
+    .status.bad {
+      background: #fff0e8;
+      color: #9a3412
+    }
+
+    .expenses {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 13px
+    }
+
+    .expenses td,
+    .expenses th {
+      padding: 10px 4px;
+      border-bottom: 1px solid #edf1f4;
+      text-align: left
+    }
+
+    .expenses td:last-child,
+    .expenses th:last-child {
+      text-align: right
+    }
+
+    .expenses th {
+      color: #758292;
+      font-size: 11px;
+      text-transform: uppercase
+    }
+
+    .day {
+      border: 1px solid #e3e9ee;
+      border-radius: 12px;
+      padding: 14px;
+      margin-top: 11px
+    }
+
+    .day h3 {
+      font-size: 15px;
+      margin: 0 0 10px
+    }
+
+    .activity {
+      display: grid;
+      grid-template-columns: 76px 1fr auto;
+      gap: 10px;
+      padding: 10px 0;
+      border-top: 1px solid #edf1f4;
+      align-items: start
+    }
+
+    .activity:first-of-type {
+      border-top: 0
+    }
+
+    .time {
+      font-size: 11px;
+      font-weight: 800;
+      color: #0b766e
+    }
+
+    .activity strong {
+      font-size: 13px
+    }
+
+    .activity p {
+      margin: 4px 0 0;
+      font-size: 12px;
+      color: #687787;
+      line-height: 1.4
+    }
+
+    .price {
+      font-size: 12px;
+      font-weight: 800;
+      white-space: nowrap
+    }
+
+    .checks {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 8px;
+      margin-top: 12px
+    }
+
+    .check-item {
+      padding: 11px;
+      border-radius: 10px;
+      background: #f3f6f8;
+      font-size: 12px
+    }
+
+    .check-item strong {
+      display: block;
+      margin-bottom: 4px
+    }
+
+    .ok {
+      color: #16803c
+    }
+
+    .warn {
+      color: #b45309
+    }
+
+    .notice {
+      font-size: 12px;
+      background: #fff8df;
+      border: 1px solid #f0dfa3;
+      color: #765a12;
+      padding: 12px;
+      border-radius: 10px;
+      line-height: 1.5
+    }
+
+    #message {
+      font-size: 12px;
+      color: #617183;
+      margin-top: 10px;
+      min-height: 18px
+    }
+
+    @media(max-width:800px) {
+      main {
+        grid-template-columns: 1fr
+      }
+
+      .stats {
+        grid-template-columns: repeat(3, 1fr)
+      }
+    }
+
+    @media(max-width:480px) {
+
+      .stats,
+      .checks {
+        grid-template-columns: 1fr
+      }
+
+      .activity {
+        grid-template-columns: 60px 1fr
+      }
+
+      .price {
+        grid-column: 2
+      }
+    }
+  </style>
+</head>
+
+<body>
+  <header>
+    <div class="eyebrow">AI travel planning agent · prototype</div>
+    <h1>Plan the adventure. Keep the budget.</h1>
+    <p>RouteWise builds a destination-aware draft itinerary, calculates modeled expenses, and replans against your trip
+      constraints.</p>
+  </header>
+  <main>
+    <aside class="panel">
+      <h2>Trip requirements</h2>
+      <label for="destination">Destination</label><input id="destination" value="Rishikesh">
+      <label for="origin">Starting city (optional)</label><input id="origin" placeholder="e.g. New Delhi">
+      <label for="transportRate">Estimated vehicle rate (₹/km)</label>
+      <input id="transportRate" type="number" min="0.01" max="1000" step="0.5" value="15">
+      <label for="days">Trip duration</label><select id="days">
+        <option value="3">3 days / 2 nights</option>
+        <option value="2">2 days / 1 night</option>
+        <option value="4">4 days / 3 nights</option>
+      </select>
+      <label for="travelers">Travelers</label><input id="travelers" type="number" min="1" max="20" value="2">
+      <label for="budget">Budget per person (₹)</label><input id="budget" type="number" min="500" step="100"
+        value="5000">
+      <label for="interests">Primary interest</label><select id="interests">
+        <option value="adventure">Adventure + nature + culture</option>
+        <option value="nature">Nature + scenic places</option>
+        <option value="culture">Culture + local experiences</option>
+      </select>
+      <label class="check"><input id="expensive" type="checkbox"> Main activity allowance is higher (demo)</label>
+      <label class="check"><input id="closed" type="checkbox"> Main activity unavailable (demo)</label>
+      <button class="primary" id="generate">Generate itinerary</button>
+      <button class="secondary" id="replan" style="width:100%;margin-top:9px">Replan with constraints</button>
+      <div id="message" role="status"></div>
+    </aside>
+    <section class="content">
+      <div class="card hero-card">
+        <span class="pill" id="dataMode">MODELED ESTIMATES</span>
+        <h2 id="tripTitle">Your Rishikesh adventure</h2>
+        <div class="muted" id="subtitle">3 days · 2 travelers</div>
+        <div class="stats">
+          <div class="stat"><span>Total modeled cost</span><strong id="total">₹—</strong></div>
+          <div class="stat"><span>Budget remaining</span><strong id="remaining">₹—</strong></div>
+          <div class="stat"><span>Budget per person</span><strong id="perPerson">₹—</strong></div>
+        </div>
+      </div>
+      <div class="card">
+        <div class="card-head">
+          <h2 class="section-title">Budget breakdown</h2><span id="budgetStatus" class="status">Checking</span>
+        </div>
+        <table class="expenses">
+          <thead>
+            <tr>
+              <th>Expense</th>
+              <th>Per person</th>
+              <th>Group total</th>
+            </tr>
+          </thead>
+          <tbody id="expenseRows"></tbody>
+        </table>
+        <div class="muted" id="routeSummary" style="margin-top:10px"></div>
+        <div class="muted" style="margin-top:10px">Accommodation, food, and activity prices are illustrative
+          estimates, not live quotes. A supplied origin adds live Google Maps driving distance and time; the fare
+          estimate uses the per-kilometer rate above.</div>
+      </div>
+      <div class="card">
+        <div class="card-head">
+          <h2 class="section-title">Day-wise itinerary</h2><span class="pill">Draft plan</span>
+        </div>
+        <div id="itinerary"></div>
+      </div>
+      <div class="card">
+        <h2 class="section-title">Constraint validation</h2>
+        <div class="checks" id="checks"></div>
+        <div class="notice" style="margin-top:12px">Google Places attraction details are live results when available;
+          fallback items are labeled. Route time covers the round trip between the selected origin and destination only.
+          The itinerary schedule, opening hours, weather, operator availability, and all prices are not live-validated.</div>
+        <div id="warnings" class="muted" style="margin-top:12px"></div>
+      </div>
+    </section>
+  </main>
+  <script>
+    const $ = id => document.getElementById(id);
+    const money = n => "₹" + Number(n).toLocaleString("en-IN");
+    let activeRequest = null;
+    let updateTimer = null;
+    let requestNumber = 0;
+
+    function requestBody() {
+      return {
+        destination: $("destination").value || "Rishikesh",
+        origin: $("origin").value.trim() || null,
+        transport_rate_per_km: Number($("transportRate").value || 15),
+        days: Number($("days").value),
+        travelers: Math.max(1, Number($("travelers").value || 2)),
+        budget_per_person: Math.max(500, Number($("budget").value || 5000)),
+        interests: [$("interests").value],
+        expensive_rafting: $("expensive").checked,
+        rafting_closed: $("closed").checked
+      };
+    }
+
+    function clearPlanDisplay() {
+      $("dataMode").textContent = "LOADING";
+      $("tripTitle").textContent = "Loading itinerary…";
+      $("subtitle").textContent = "";
+      $("total").textContent = "—";
+      $("remaining").textContent = "—";
+      $("perPerson").textContent = "—";
+      $("budgetStatus").textContent = "Checking";
+      $("budgetStatus").className = "status";
+      $("expenseRows").replaceChildren();
+      $("routeSummary").textContent = "";
+      $("itinerary").replaceChildren();
+      $("checks").replaceChildren();
+      $("warnings").replaceChildren();
+    }
+
+    async function runPlan(endpoint) {
+      window.clearTimeout(updateTimer);
+      if (activeRequest) activeRequest.abort();
+      const requestId = ++requestNumber;
+      activeRequest = new AbortController();
+      $("generate").disabled = true;
+      $("replan").disabled = true;
+      clearPlanDisplay();
+      $("message").textContent = `Planning itinerary for ${$("destination").value.trim() || "your destination"}…`;
+      try {
+        const response = await fetch(endpoint, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(requestBody()),
+          signal: activeRequest.signal
+        });
+        const data = await response.json();
+        if (!response.ok) {
+          throw new Error(typeof data.detail === "string" ? data.detail : "API returned " + response.status);
+        }
+        if (requestId !== requestNumber) return;
+        render(data);
+        $("message").textContent = endpoint.endsWith("replan") ? "Replanning complete. Review the updated constraints and estimates." : "Draft itinerary generated.";
+      } catch (err) {
+        if (err.name === "AbortError" || requestId !== requestNumber) return;
+        $("message").textContent = err instanceof TypeError
+          ? "Could not connect to the API. Start the FastAPI server using the README instructions."
+          : (err.message || "Could not generate the itinerary.");
+        $("tripTitle").textContent = "Itinerary unavailable";
+        $("dataMode").textContent = "PLAN FAILED";
+      } finally {
+        if (requestId === requestNumber) {
+          activeRequest = null;
+          $("generate").disabled = false;
+          $("replan").disabled = false;
+        }
+      }
+    }
+
+    function render(data) {
+      $("tripTitle").textContent = "Your " + data.destination + " adventure";
+      $("dataMode").textContent = data.attraction_source || data.data_mode;
+      $("subtitle").textContent = `${data.days} days · ${data.travelers} travelers`;
+      const route = data.travel_route;
+      $("routeSummary").textContent = route
+        ? `Round trip: ${esc(route.origin)} ↔ ${esc(route.destination)} · ${(route.distance_meters / 1000).toFixed(1)} km · ${Math.round(route.duration_seconds / 60)} min · estimated fare ${money(route.estimated_cost)} at ${money(route.rate_per_km)}/km.`
+        : "Home-to-destination travel is excluded until a starting city is entered.";
+      $("total").textContent = money(data.total_cost);
+      $("remaining").textContent = money(data.remaining);
+      $("perPerson").textContent = money(Math.round(data.total_cost / data.travelers));
+      $("budgetStatus").textContent = data.valid ? "Within modeled budget" : "Over budget";
+      $("budgetStatus").className = "status" + (data.valid ? "" : " bad");
+      $("expenseRows").replaceChildren(...data.expenses.map(expense => {
+        const row = document.createElement("tr");
+        appendCell(row, expense.name, expense.status);
+        appendCell(row, money(expense.per_person));
+        appendCell(row, money(expense.group_cost));
+        return row;
+      }));
+      $("itinerary").replaceChildren(...data.itinerary.map(day => {
+        const section = document.createElement("div");
+        section.className = "day";
+        const title = document.createElement("h3");
+        title.textContent = `Day ${day.day} — ${day.title}`;
+        section.append(title);
+        day.items.forEach(activity => section.append(makeActivity(activity)));
+        return section;
+      }));
+      const checks = [
+        ["Budget", data.checks.budget, "Calculated expense total"],
+        ["Route", data.checks.schedule, data.checks.note],
+        ["Availability", data.checks.availability, "Not live-verified"]
+      ];
+      $("checks").replaceChildren(...checks.map(([name, ok, note]) => {
+        const item = document.createElement("div");
+        item.className = "check-item";
+        const heading = document.createElement("strong");
+        heading.className = ok ? "ok" : "warn";
+        heading.textContent = `${ok ? "✓" : "!"} ${name}`;
+        const description = document.createElement("span");
+        description.textContent = note;
+        item.append(heading, description);
+        return item;
+      }));
+      $("warnings").replaceChildren(...data.warnings.map(warning => {
+        const item = document.createElement("p");
+        item.textContent = `• ${warning}`;
+        return item;
+      }));
+    }
+
+    function appendCell(row, text, status) {
+      const cell = document.createElement("td");
+      cell.textContent = String(text ?? "");
+      if (status) {
+        const label = document.createElement("span");
+        label.className = "muted";
+        label.textContent = ` (${status})`;
+        cell.append(label);
+      }
+      row.append(cell);
+    }
+
+    function makeActivity(activity) {
+      const wrapper = document.createElement("div");
+      wrapper.className = "activity";
+      const time = document.createElement("div");
+      time.className = "time";
+      time.textContent = activity.time || "Flexible";
+      const details = document.createElement("div");
+      const name = document.createElement("strong");
+      name.textContent = activity.name;
+      details.append(name);
+      if (activity.address) {
+        const address = document.createElement("p");
+        address.textContent = activity.address;
+        details.append(address);
+      }
+      if (activity.description) {
+        const description = document.createElement("p");
+        description.textContent = activity.description;
+        details.append(description);
+      }
+      const source = document.createElement("p");
+      const duration = Number.isFinite(activity.duration_minutes)
+        ? `${activity.duration_minutes} min · `
+        : "";
+      source.textContent = `${duration}${activity.source || "Unverified"}`;
+      details.append(source);
+      const mapsUrl = getSafeMapsUrl(activity.maps_url);
+      if (mapsUrl) {
+        const link = document.createElement("a");
+        link.href = mapsUrl;
+        link.target = "_blank";
+        link.rel = "noopener noreferrer";
+        link.textContent = "View on Google Maps";
+        details.append(link);
+      }
+      const price = document.createElement("div");
+      price.className = "price";
+      price.textContent = Number.isFinite(activity.cost_per_person)
+        ? `${money(activity.cost_per_person)}/person`
+        : "Price not provided";
+      wrapper.append(time, details, price);
+      return wrapper;
+    }
+
+    function getSafeMapsUrl(value) {
+      if (typeof value !== "string") return null;
+      try {
+        const url = new URL(value);
+        const googleMapsHost = ["google.com", "www.google.com", "maps.google.com", "maps.app.goo.gl"]
+          .includes(url.hostname);
+        return url.protocol === "https:" && googleMapsHost ? url.href : null;
+      } catch {
+        return null;
+      }
+    }
+
+    $("generate").addEventListener("click", () => runPlan("/api/plan"));
+    $("replan").addEventListener("click", () => runPlan("/api/replan"));
+    $("closed").addEventListener("change", () => { if ($("closed").checked) $("expensive").checked = false; });
+    const queuePlanUpdate = () => {
+      window.clearTimeout(updateTimer);
+      if (activeRequest) activeRequest.abort();
+      activeRequest = null;
+      requestNumber++;
+      $("generate").disabled = false;
+      $("replan").disabled = false;
+      clearPlanDisplay();
+      $("message").textContent = `Updating plan for ${$("destination").value.trim() || "your destination"}…`;
+      updateTimer = window.setTimeout(() => runPlan("/api/plan"), 350);
+    };
+    ["destination", "origin", "transportRate", "travelers", "budget"].forEach(id => {
+      $(id).addEventListener("input", queuePlanUpdate);
+      $(id).addEventListener("change", queuePlanUpdate);
+    });
+    ["days", "interests", "expensive", "closed"].forEach(id => {
+      $(id).addEventListener("change", queuePlanUpdate);
+    });
+    runPlan("/api/plan");
+  </script>
+</body>
+
+</html>
