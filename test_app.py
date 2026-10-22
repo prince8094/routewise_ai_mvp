@@ -122,43 +122,77 @@ class RouteEstimateTests(unittest.TestCase):
 
 
 class AttractionTests(unittest.IsolatedAsyncioTestCase):
-    async def test_destination_attractions_builds_destination_and_interest_query(self):
-        places = [{
-            "place_id": "place-1",
-            "name": "Amber Fort",
-            "address": "Devisinghpura, Jaipur",
-            "latitude": 26.9855,
-            "longitude": 75.8513,
-            "maps_url": "https://maps.google.com/?cid=1",
+    async def asyncSetUp(self):
+        import maps_service
+
+        maps_service._attraction_cache.clear()
+
+    async def test_destination_attractions_queries_overpass_and_normalizes_osm(self):
+        elements = [{
+            "type": "way",
+            "id": 123,
+            "center": {"lat": 26.9855, "lon": 75.8513},
+            "tags": {
+                "name": "Amber Fort",
+                "tourism": "attraction",
+                "addr:city": "Jaipur",
+            },
         }]
-        with patch("maps_service.search_places", new_callable=AsyncMock) as search:
-            search.return_value = places
+        with patch("maps_service._fetch_overpass", new_callable=AsyncMock) as query:
+            query.return_value = elements
             result = await get_destination_attractions(
                 "Jaipur",
                 ["culture", "architecture"],
                 3,
             )
 
-        self.assertEqual(
-            search.await_args.args[0],
-            "tourist attractions in Jaipur for culture architecture",
-        )
-        self.assertEqual(search.await_args.args[1], 3)
+        query.assert_awaited_once_with(26.9124, 75.7873)
         self.assertEqual(result[0]["name"], "Amber Fort")
-        self.assertEqual(result[0]["source"], "Google Places API (New)")
+        self.assertEqual(result[0]["place_id"], "way/123")
+        self.assertEqual(result[0]["address"], "Jaipur")
+        self.assertEqual(result[0]["category"], "attraction")
+        self.assertEqual(result[0]["source"], "OpenStreetMap (Overpass API)")
+        self.assertIn("openstreetmap.org", result[0]["maps_url"])
 
     async def test_destination_attractions_skips_unusable_and_duplicate_results(self):
-        with patch("maps_service.search_places", new_callable=AsyncMock) as search:
-            search.return_value = [
-                {"place_id": "1", "name": "Hawa Mahal"},
-                {"place_id": "1", "name": "Hawa Mahal duplicate"},
-                {"place_id": "2", "name": "  "},
+        with patch("maps_service._fetch_overpass", new_callable=AsyncMock) as query:
+            query.return_value = [
+                {
+                    "type": "node",
+                    "id": 1,
+                    "lat": 26.9,
+                    "lon": 75.8,
+                    "tags": {"name": "Hawa Mahal", "historic": "monument"},
+                },
+                {
+                    "type": "node",
+                    "id": 2,
+                    "lat": 26.9,
+                    "lon": 75.8,
+                    "tags": {"name": "Hawa Mahal"},
+                },
+                {"type": "node", "id": 3, "lat": 26.9, "lon": 75.8, "tags": {"name": "  "}},
             ]
             result = await get_destination_attractions("Jaipur", [], 5)
 
         self.assertEqual([place["name"] for place in result], ["Hawa Mahal"])
-        self.assertIsNone(result[0]["maps_url"])
+        self.assertEqual(result[0]["latitude"], 26.9)
+
+    async def test_overpass_failure_returns_curated_fallback_honestly(self):
+        with patch(
+            "maps_service._fetch_overpass",
+            new_callable=AsyncMock,
+            side_effect=httpx.ConnectTimeout("upstream unavailable"),
+        ) as query:
+            result = await get_destination_attractions("Delhi", limit=2)
+            cached_result = await get_destination_attractions("Delhi", limit=1)
+
+        self.assertEqual(len(result), 2)
+        self.assertEqual(result[0]["name"], "Red Fort")
+        self.assertEqual(result[0]["source"], "Curated fallback (not live data)")
         self.assertIsNone(result[0]["latitude"])
+        self.assertEqual(len(cached_result), 1)
+        query.assert_awaited_once()
 
 
 class ApiTests(unittest.TestCase):
@@ -220,6 +254,33 @@ class ApiTests(unittest.TestCase):
         self.assertEqual(response.json()["attractions"][0]["place_id"], "jaipur-1")
         self.assertEqual(get_attractions.await_args.args[:2], ("Jaipur", ["culture"]))
 
+    def test_attractions_endpoint_defaults_to_eight_without_google_api_key(self):
+        import maps_service
+
+        maps_service._attraction_cache.clear()
+        elements = [{
+            "type": "node",
+            "id": 77,
+            "lat": 26.9,
+            "lon": 75.8,
+            "tags": {"name": "Jaipur Museum", "tourism": "museum"},
+        }]
+        with (
+            patch("maps_service.API_KEY", None),
+            patch("maps_service._fetch_overpass", new_callable=AsyncMock, return_value=elements),
+        ):
+            response = self.client.get(
+                "/api/attractions?destination=Jaipur&limit=8"
+            )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["count"], 1)
+        self.assertEqual(response.json()["attractions"][0]["name"], "Jaipur Museum")
+        self.assertEqual(
+            response.json()["attractions"][0]["source"],
+            "OpenStreetMap (Overpass API)",
+        )
+
     def test_rishikesh_attractions_endpoint_returns_normalized_record(self):
         place = {
             "place_id": "rishikesh-1",
@@ -264,7 +325,7 @@ class ApiTests(unittest.TestCase):
         self.assertEqual(response.status_code, 503)
         self.assertNotIn("private server configuration", response.text)
 
-    def test_empty_attractions_return_empty_api_results_and_labeled_plan_fallback(self):
+    def test_empty_attractions_return_empty_api_results_and_curated_plan_fallback(self):
         with patch(
             "app.get_destination_attractions",
             new_callable=AsyncMock,
@@ -280,11 +341,11 @@ class ApiTests(unittest.TestCase):
         self.assertEqual(response.json()["attractions"], [])
         self.assertEqual(plan_response.status_code, 200)
         plan = plan_response.json()
-        self.assertEqual(plan["attractions"], [])
-        self.assertIn("No destination-specific demo data", plan["attraction_source"])
+        self.assertEqual(plan["attractions"][0]["name"], "Hawa Mahal")
+        self.assertEqual(plan["attraction_source"], "Curated fallback (not live data)")
         self.assertEqual(
             plan["itinerary"][0]["items"][0]["name"],
-            "No verified attractions available",
+            "Hawa Mahal",
         )
         self.assertNotIn("Beatles", str(plan["itinerary"]))
 
@@ -338,7 +399,7 @@ class ApiTests(unittest.TestCase):
             1,
         )
 
-    def test_places_failure_uses_labeled_fallback_for_plan(self):
+    def test_attraction_failure_uses_labeled_fallback_for_plan(self):
         with patch(
             "app.get_destination_attractions",
             new_callable=AsyncMock,
@@ -351,10 +412,13 @@ class ApiTests(unittest.TestCase):
 
         self.assertEqual(response.status_code, 200)
         plan = response.json()
-        self.assertTrue(plan["attraction_source"].startswith("Fallback data"))
+        self.assertEqual(
+            plan["attraction_source"],
+            "Curated fallback (not live data)",
+        )
         self.assertTrue(
             all(
-                item["source"].startswith("Rishikesh demo fallback")
+                item["source"] == "Curated fallback (not live data)"
                 for day in plan["itinerary"]
                 for item in day["items"]
             )

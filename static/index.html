@@ -422,13 +422,19 @@
           <h2 class="section-title">Day-wise itinerary</h2><span class="pill">Draft plan</span>
         </div>
         <div id="itinerary"></div>
+        <p class="muted">Attraction discovery uses OpenStreetMap data when available.
+          <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener noreferrer">© OpenStreetMap contributors</a>.
+        </p>
       </div>
       <div class="card">
         <h2 class="section-title">Constraint validation</h2>
         <div class="checks" id="checks"></div>
-        <div class="notice" style="margin-top:12px">Google Places attraction details are live results when available;
-          fallback items are labeled. Route time covers the round trip between the selected origin and destination only.
-          The itinerary schedule, opening hours, weather, operator availability, and all prices are not live-validated.</div>
+        <div class="notice" style="margin-top:12px">Attraction records are sourced from OpenStreetMap when available;
+          curated fallback items are labeled and are not live data.
+          <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener noreferrer">© OpenStreetMap contributors</a>.
+          Routing is optional and only available when Google Routes is configured. Route time covers the round trip
+          between the selected origin and destination only. Schedule, opening hours, weather, availability, and prices
+          are not live-validated.</div>
         <div id="warnings" class="muted" style="margin-top:12px"></div>
       </div>
     </section>
@@ -605,7 +611,9 @@
         link.href = mapsUrl;
         link.target = "_blank";
         link.rel = "noopener noreferrer";
-        link.textContent = "View on Google Maps";
+        link.textContent = new URL(mapsUrl).hostname.includes("openstreetmap")
+          ? "View on OpenStreetMap"
+          : "Search on Google Maps";
         details.append(link);
       }
       const price = document.createElement("div");
@@ -621,9 +629,11 @@
       if (typeof value !== "string") return null;
       try {
         const url = new URL(value);
-        const googleMapsHost = ["google.com", "www.google.com", "maps.google.com", "maps.app.goo.gl"]
-          .includes(url.hostname);
-        return url.protocol === "https:" && googleMapsHost ? url.href : null;
+        const allowedHosts = [
+          "google.com", "www.google.com", "maps.google.com", "maps.app.goo.gl",
+          "openstreetmap.org", "www.openstreetmap.org"
+        ];
+        return url.protocol === "https:" && allowedHosts.includes(url.hostname) ? url.href : null;
       } catch {
         return null;
       }
@@ -643,7 +653,10 @@
       $("message").textContent = `Updating plan for ${$("destination").value.trim() || "your destination"}…`;
       updateTimer = window.setTimeout(() => runPlan("/api/plan"), 350);
     };
-    ["destination", "origin", "transportRate", "travelers", "budget"].forEach(id => {
+    ["destination", "origin"].forEach(id => {
+      $(id).addEventListener("change", queuePlanUpdate);
+    });
+    ["transportRate", "travelers", "budget"].forEach(id => {
       $(id).addEventListener("input", queuePlanUpdate);
       $(id).addEventListener("change", queuePlanUpdate);
     });
