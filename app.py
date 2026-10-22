@@ -8,7 +8,13 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field, field_validator
 
-from maps_service import get_destination_attractions, get_route, search_places
+from maps_service import (
+    OSM_SOURCE,
+    get_curated_attractions,
+    get_destination_attractions,
+    get_route,
+    search_places,
+)
 
 BASE_DIR = Path(__file__).resolve().parent
 app = FastAPI(title="RouteWise AI MVP", version="0.1.0")
@@ -281,25 +287,10 @@ async def _fetch_intercity_route(
 
 
 def _fallback_attractions(destination: str) -> tuple[list[dict], str]:
-    if destination.strip().casefold() != "rishikesh":
-        return [], "No destination-specific demo data"
-
-    places = []
-    for activity in ACTIVITIES.values():
-        if activity["id"] in {"rafting"}:
-            continue
-        places.append({
-            "place_id": None,
-            "name": activity["name"],
-            "address": None,
-            "latitude": None,
-            "longitude": None,
-            "maps_url": None,
-            "category": activity["category"],
-            "description": activity["description"],
-            "source": "Rishikesh demo fallback (not live-verified)",
-        })
-    return places, "Rishikesh demo fallback (not live-verified)"
+    places = get_curated_attractions(destination, limit=10)
+    if places:
+        return places, "Curated fallback (not live data)"
+    return [], "No curated fallback is available for this destination"
 
 
 async def _load_plan_attractions(req: TripRequest) -> tuple[list[dict], str]:
@@ -311,12 +302,16 @@ async def _load_plan_attractions(req: TripRequest) -> tuple[list[dict], str]:
         )
     except RuntimeError:
         attractions = []
-        source = "Fallback data (Google Places is not configured)"
+        source = "OpenStreetMap lookup unavailable"
     except httpx.HTTPError:
         attractions = []
-        source = "Fallback data (Google Places is unavailable)"
+        source = "OpenStreetMap lookup unavailable"
     else:
-        source = "Google Places API (New)"
+        source = (
+            attractions[0].get("source", OSM_SOURCE)
+            if attractions
+            else "No live OSM results"
+        )
 
     usable = []
     seen_ids = set()
@@ -339,10 +334,10 @@ async def _load_plan_attractions(req: TripRequest) -> tuple[list[dict], str]:
 
     if not usable:
         fallback, fallback_source = _fallback_attractions(req.destination)
-        if source == "Google Places API (New)":
-            source = f"Fallback data ({fallback_source})"
+        if fallback:
+            source = fallback_source
         else:
-            source = f"{source}; {fallback_source}"
+            source = fallback_source
         usable = fallback
 
     return usable[: min(10, req.days * 2)], source
@@ -368,7 +363,7 @@ def _make_itinerary(
                 "latitude": place.get("latitude"),
                 "longitude": place.get("longitude"),
                 "maps_url": place.get("maps_url"),
-                "source": place.get("source", "Google Places API (New)"),
+                "source": place.get("source", OSM_SOURCE),
                 "description": place.get("description"),
                 "time": "Flexible",
                 "duration_minutes": None,
@@ -447,15 +442,14 @@ def build_plan(
 
     if attraction_source:
         warnings.append(f"Attraction data: {attraction_source}.")
-    if any(
-        isinstance(item.get("source"), str)
-        and item["source"].startswith("Rishikesh demo")
-        for item in attractions
-    ):
-        warnings.append("Demo attraction names are not live-verified and have no live prices or locations.")
+    if any(item.get("source") == "Curated fallback (not live data)" for item in attractions):
+        warnings.append(
+            "Curated fallback attraction names are not live-verified; coordinates and "
+            "addresses are not provided."
+        )
     warnings.append(
         "Accommodation, food, entry fees, local transport, and activity allowances "
-        "are estimates; Google Places does not provide these prices."
+        "are estimates; OpenStreetMap does not provide prices, opening hours, or availability."
     )
 
     expenses = make_expenses(req, rafting_cost, intercity_transport_cost)
@@ -572,8 +566,8 @@ async def api_places(
 @app.get("/api/attractions")
 async def api_attractions(
     destination: str = Query(min_length=1, max_length=200),
-    interests: List[str] = Query(default=["adventure", "nature", "culture"]),
-    limit: int = Query(default=5, ge=1, le=10),
+    interests: List[str] = Query(default=[]),
+    limit: int = Query(default=8, ge=1, le=10),
 ):
     try:
         attractions = await get_destination_attractions(
@@ -586,18 +580,20 @@ async def api_attractions(
     except RuntimeError as exc:
         raise HTTPException(
             status_code=503,
-            detail="Google Places is not configured on the server.",
+            detail="Attraction lookup is temporarily unavailable.",
         ) from exc
     except httpx.HTTPError as exc:
         raise HTTPException(
             status_code=502,
-            detail="Google Places lookup failed. Verify API enablement, billing, and quota.",
+            detail="OpenStreetMap attraction lookup failed.",
         ) from exc
 
     return {
         "destination": destination.strip(),
         "count": len(attractions),
-        "source": "Google Places API (New)",
+        "source": attractions[0].get("source", "No attraction results")
+        if attractions
+        else "No live or curated attraction results",
         "attractions": attractions,
     }
 
